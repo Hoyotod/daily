@@ -1,0 +1,40 @@
+name: Claim Daily Reward
+
+on:
+    schedule:
+        - cron: '0 21 * * *'
+    workflow_dispatch:
+
+jobs:
+    daily-claim:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v6
+
+            - name: setup uv (python)
+              id: setup-uv
+              uses: astral-sh/setup-uv@v7
+              with:
+                  version: "latest"
+                  python-version: 3.13
+                  enable-cache: true
+                  activate-environment: true
+
+            - name: Install dependencies
+              run: |
+                  uv sync
+
+            - name: Run daily claim script
+              env:
+                  SECRET_KEY: ${{ secrets.SECRET_KEY }}
+                  COOKIE_API_URL: ${{ secrets.COOKIE_API_URL }}
+                  DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+                  LOCALE: ${{ vars.LOCALE }}
+                  NO_GENSHIN: ${{ vars.NO_GENSHIN }}
+                  NO_STARRAIL: ${{ vars.NO_STARRAIL }}
+                  NO_ZZZ: ${{ vars.NO_ZZZ }}
+                  NO_HONKAI: ${{ vars.NO_HONKAI }}
+                  NO_TOT: ${{ vars.NO_TOT }}
+              run: uv run daily.py
