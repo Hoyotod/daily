@@ -112,6 +112,8 @@ async def main():
         "GENSHIN": (genshin.Game.GENSHIN, settings.NO_GENSHIN),
         "STARRAIL": (genshin.Game.STARRAIL, settings.NO_STARRAIL),
         "ZZZ": (genshin.Game.ZZZ, settings.NO_ZZZ),
+        "HONKAI": (genshin.Game.HONKAI, settings.NO_HONKAI),
+        "TOT": (genshin.Game.TOT, settings.NO_TOT),
     }
 
     results = {}
