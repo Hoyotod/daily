@@ -1,0 +1,2 @@
+# daily
+Claim daily reward
