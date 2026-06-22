@@ -8,7 +8,7 @@ dependencies = [
     "discord-webhook>=1.4.1",
     "genshin>=1.7.27",
     "pydantic>=2.13.4",
-    "pydantic-settings>=2.14.1",
+    "pydantic-settings>=2.14.2",
     "requests>=2.34.2",
     "rich>=15.0.0",
 ]
