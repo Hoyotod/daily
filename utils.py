@@ -56,6 +56,7 @@ settings = Settings()
 class CookieInfo:
     env_name: str = ""
     cookies: str | dict = ""
+    user_webhook: str | None = None
 
 
 @dataclass
@@ -145,7 +146,9 @@ async def get_cookies_from_db() -> list[CookieInfo]:
         conn = await asyncpg.connect(settings.DATABASE_URL)
         try:
             rows = await conn.fetch(
-                'SELECT name, "accountId", "cookieToken" FROM "Account"'
+                """SELECT a.name, a."accountId", a."cookieToken", u.webhook
+                FROM "Account" a
+                LEFT JOIN "User" u ON a."userId" = u.id"""
             )
         finally:
             await conn.close()
@@ -168,7 +171,13 @@ async def get_cookies_from_db() -> list[CookieInfo]:
                 continue
 
             cookie_str = f"account_id_v2={account_id}; cookie_token_v2={cookie_token}"
-            cookies.append(CookieInfo(env_name=env_name, cookies=cookie_str))
+            cookies.append(
+                CookieInfo(
+                    env_name=env_name,
+                    cookies=cookie_str,
+                    user_webhook=row["webhook"],
+                )
+            )
         except Exception as e:
             log.warning(f"[COOKIE] Gagal memproses row {idx}: {e}")
             continue

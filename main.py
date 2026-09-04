@@ -143,6 +143,10 @@ async def main():
     # Global Set untuk menampung error cookie unik
     global_cookie_errors = set()
 
+    # Per-User: webhook -> list[(game_name, DailyInfo)], webhook -> set cookie error
+    user_results: dict[str, list[tuple[str, DailyInfo]]] = {}
+    user_cookie_errors: dict[str, set[str]] = {}
+
     # Status display mapping untuk tabel
     STATUS_DISPLAY = {
         "cookie_err": "❌ Cookie",
@@ -167,7 +171,7 @@ async def main():
 
         has_valid_info = False
 
-        for i in infos:
+        for i, cookie in zip(infos, cookies):
             # Tambahkan ke Terminal (Semua)
             display_status = STATUS_DISPLAY.get(i.status, i.status)
             table.add_row(i.env_name, i.uid, i.check_in_count, display_status, i.reward)
@@ -183,6 +187,9 @@ async def main():
             # 2. Tangkap Cookie Error (Jangan kirim sekarang)
             if i.status == "cookie_err":
                 global_cookie_errors.add(i.env_name)
+                if cookie.user_webhook:
+                    user_results.setdefault(cookie.user_webhook, []).append((name, i))
+                    user_cookie_errors.setdefault(cookie.user_webhook, set()).add(i.env_name)
                 continue
 
             # 3. Pisahkan Sukses dan Error Lainnya
@@ -190,9 +197,13 @@ async def main():
                 success_lines.append(
                     f"{i.status} {i.env_name} ({i.uid}): Day {i.check_in_count}"
                 )
+                if cookie.user_webhook:
+                    user_results.setdefault(cookie.user_webhook, []).append((name, i))
             else:
                 # Error runtime lain (misal timeout, captcha, dll)
                 error_lines.append(f"❌ {i.env_name}: {i.status}")
+                if cookie.user_webhook:
+                    user_results.setdefault(cookie.user_webhook, []).append((name, i))
 
         if has_valid_info:
             rich_output.append(table)
@@ -224,6 +235,42 @@ async def main():
         await send_chunked_webhook(
             settings.DISCORD_WEBHOOK_URL, "⚠️ Account Alert", error_msg, "ff0000"
         )
+
+    # --- PER-USER REPORT ---
+    # Kirim laporan ke webhook masing-masing user setelah webhook global
+    for wh, items in user_results.items():
+        user_success: dict[str, list[str]] = {}
+        user_error: dict[str, list[str]] = {}
+
+        for game_name, info in items:
+            # Pisahkan Sukses dan Error (cookie_err sudah ditangkap di user_cookie_errors)
+            if info.status in ["✅", "🟡"]:
+                user_success.setdefault(game_name, []).append(
+                    f"{info.status} {info.env_name} ({info.uid}): Day {info.check_in_count}"
+                )
+            elif info.status not in ("no_account", "cookie_err"):
+                user_error.setdefault(game_name, []).append(
+                    f"❌ {info.env_name}: {info.status}"
+                )
+
+        # Kirim Sukses Per Game
+        for game_name, lines in user_success.items():
+            await send_chunked_webhook(
+                wh, f"Daily Check-In - {game_name}", lines, "00ff00"
+            )
+
+        # Kirim Error Game Spesifik (Bukan Cookie)
+        for game_name, lines in user_error.items():
+            await send_chunked_webhook(
+                wh, f"⚠️ Daily Error - {game_name}", lines, "ff0000"
+            )
+
+        # Cookie Error Khusus User Ini
+        err_names = user_cookie_errors.get(wh)
+        if err_names:
+            err_list = ", ".join(sorted(err_names))
+            error_msg = [f"❌ Invalid Cookies ({len(err_names)}): {err_list}"]
+            await send_chunked_webhook(wh, "⚠️ Account Alert", error_msg, "ff0000")
 
     if rich_output:
         console.print(Panel(Group(*rich_output), title=f"Daily Report - {timestamp}"))
