@@ -14,7 +14,7 @@ from utils import (
     console,
     create_genshin_client,
     fix_asyncio_windows_error,
-    get_cookies_from_api,
+    get_cookies_from_db,
     get_days_of_month,
     log,
     send_discord_embed,
@@ -34,7 +34,7 @@ class DailyClaimer:
         info = DailyInfo(env_name=display_name)
 
         client, err = await create_genshin_client(cookie, lang, self.game)
-        if err or client is None:
+        if err:
             info.status = "cookie_err"
             return info
 
@@ -83,7 +83,7 @@ class DailyClaimer:
         return info
 
 
-def send_chunked_webhook(webhook_url, title, lines, color):
+async def send_chunked_webhook(webhook_url: str, title: str, lines: list[str], color: str) -> None:
     """Memecah pesan Discord agar tidak kena limit karakter."""
     MAX_LENGTH = 1900
     current_msg = "```\n"
@@ -91,19 +91,19 @@ def send_chunked_webhook(webhook_url, title, lines, color):
     for line in lines:
         if len(current_msg) + len(line) > MAX_LENGTH:
             current_msg += "```"
-            send_discord_embed(webhook_url, title, current_msg, color)
+            await send_discord_embed(webhook_url, title, current_msg, color)
             current_msg = "```\n" + line + "\n"
         else:
             current_msg += line + "\n"
 
-    if len(current_msg) > 4:  # Lebih dari sekedar ```\n
+    if current_msg != "```\n":
         current_msg += "```"
-        send_discord_embed(webhook_url, title, current_msg, color)
+        await send_discord_embed(webhook_url, title, current_msg, color)
 
 
 async def main():
     fix_asyncio_windows_error()
-    cookies = get_cookies_from_api()
+    cookies = await get_cookies_from_db()
     if not cookies:
         return log.warning("Tidak ada cookie yang ditemukan.")
 
@@ -116,19 +116,32 @@ async def main():
         "TOT": (genshin.Game.TOT, settings.NO_TOT),
     }
 
+    sem = asyncio.Semaphore(settings.MAX_PARALLEL)
+
+    async def limited_claim(claimer: DailyClaimer, cookie: CookieInfo, lang: str) -> DailyInfo:
+        async with sem:
+            return await claimer.claim(cookie, lang)
+
     results = {}
     async with asyncio.TaskGroup() as tg:
         for name, (game, disabled) in games.items():
             if disabled:
                 continue
             claimer = DailyClaimer(game)
-            results[name] = [tg.create_task(claimer.claim(c, lang)) for c in cookies]
+            results[name] = [tg.create_task(limited_claim(claimer, c, lang)) for c in cookies]
 
     rich_output = []
     timestamp = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
 
     # Global Set untuk menampung error cookie unik
     global_cookie_errors = set()
+
+    # Status display mapping untuk tabel
+    STATUS_DISPLAY = {
+        "cookie_err": "❌ Cookie",
+        "no_account": "⚪ No Account",
+        "ERR": "❌ Runtime",
+    }
 
     for name, tasks in results.items():
         infos = [t.result() for t in tasks]
@@ -149,7 +162,8 @@ async def main():
 
         for i in infos:
             # Tambahkan ke Terminal (Semua)
-            table.add_row(i.env_name, i.uid, i.check_in_count, i.status, i.reward)
+            display_status = STATUS_DISPLAY.get(i.status, i.status)
+            table.add_row(i.env_name, i.uid, i.check_in_count, display_status, i.reward)
 
             # --- LOGIKA FILTER WEBHOOK ---
 
@@ -160,7 +174,7 @@ async def main():
             has_valid_info = True
 
             # 2. Tangkap Cookie Error (Jangan kirim sekarang)
-            if i.status in ["cookie_err", "Cookie Err"]:
+            if i.status == "cookie_err":
                 global_cookie_errors.add(i.env_name)
                 continue
 
@@ -179,7 +193,7 @@ async def main():
         if settings.DISCORD_WEBHOOK_URL:
             # Kirim Sukses Per Game
             if success_lines:
-                send_chunked_webhook(
+                await send_chunked_webhook(
                     settings.DISCORD_WEBHOOK_URL,
                     f"Daily Check-In - {name}",
                     success_lines,
@@ -188,7 +202,7 @@ async def main():
 
             # Kirim Error Game Spesifik (Bukan Cookie)
             if error_lines:
-                send_chunked_webhook(
+                await send_chunked_webhook(
                     settings.DISCORD_WEBHOOK_URL,
                     f"⚠️ Daily Error - {name}",
                     error_lines,
@@ -200,7 +214,7 @@ async def main():
     if global_cookie_errors and settings.DISCORD_WEBHOOK_URL:
         err_names = ", ".join(sorted(global_cookie_errors))
         error_msg = [f"❌ Invalid Cookies ({len(global_cookie_errors)}): {err_names}"]
-        send_chunked_webhook(
+        await send_chunked_webhook(
             settings.DISCORD_WEBHOOK_URL, "⚠️ Account Alert", error_msg, "ff0000"
         )
 

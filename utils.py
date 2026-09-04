@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from re import sub
 
+import asyncpg
 import genshin
-import requests
 from discord_webhook import DiscordEmbed, DiscordWebhook
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from rich.console import Console
@@ -32,11 +32,10 @@ class Settings(BaseSettings):
 
     # App Config
     LOCALE: str = "en-us"
-    MAX_PARALLEL: int = 10
+    MAX_PARALLEL: int = 5
 
-    # Secrets
-    SECRET_KEY: str | None = None
-    COOKIE_API_URL: str | None = None
+    # Database
+    DATABASE_URL: str | None = None
 
     # Webhooks
     DISCORD_WEBHOOK_URL: str = ""
@@ -58,31 +57,13 @@ class CookieInfo:
     env_name: str = ""
     cookies: str | dict = ""
 
-    def get(self) -> str | dict:
-        return self.cookies
-
 
 @dataclass
 class DailyInfo:
     uid: str = "❓"
-    level: str = "❓"
-    name: str = "❓"
-    server: str = "❓"
     status: str = "❌"
     check_in_count: str = "❓"
     reward: str = "❓"
-    success: bool = False
-    env_name: str = "❓"
-
-
-@dataclass
-class RedeemInfo:
-    uid: str = "❓"
-    level: str = "❓"
-    name: str = "❓"
-    server: str = "❓"
-    code: str = "❓"
-    status: str = "❌"
     success: bool = False
     env_name: str = "❓"
 
@@ -123,7 +104,7 @@ def format_name(name: str) -> str:
 
 
 def fix_asyncio_windows_error() -> None:
-    if sys.version_info >= (3, 8) and sys.platform.startswith("win"):
+    if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
@@ -135,58 +116,45 @@ def get_days_of_month() -> int:
 # --- Core Logic ---
 
 
-def get_cookies_from_api() -> list[CookieInfo]:
+async def get_cookies_from_db() -> list[CookieInfo]:
     """
-    Mengambil cookie dari API dengan struktur data:
-    interface Account { id: number, name: string, cookie_token: string, account_id: number, ... }
-    interface ApiResponse { success: boolean, message: string, data?: Account[], ... }
+    Mengambil cookie dari PostgreSQL database.
+    Schema: Account { name: string, accountId: string, cookieToken: string, ... }
     """
-    if not settings.COOKIE_API_URL or not settings.SECRET_KEY:
-        log.error("[COOKIE] COOKIE_API atau SECRET_KEY belum diset di .env")
+    if not settings.DATABASE_URL:
+        log.error("[COOKIE] DATABASE_URL belum diset di .env")
         return []
 
     try:
-        response = requests.get(
-            settings.COOKIE_API_URL,
-            headers={"Authorization": f"Bearer {settings.SECRET_KEY}"},
-            timeout=15,
-        )
-        response.raise_for_status()
-        resp_json = response.json()
-
-        # Cek flag success dari ApiResponse
-        if not resp_json.get("success", False):
-            log.error(
-                f"[COOKIE] API Error: {resp_json.get('message', 'Unknown error')}"
+        conn = await asyncpg.connect(settings.DATABASE_URL)
+        try:
+            rows = await conn.fetch(
+                'SELECT name, "accountId", "cookieToken" FROM "Account"'
             )
-            return []
-
-        data = resp_json.get("data", [])
+        finally:
+            await conn.close()
     except Exception as e:
-        log.error(f"[COOKIE] Gagal mengambil cookie: {e}")
+        log.error(f"[COOKIE] Gagal mengambil cookie dari database: {e}")
         return []
 
     cookies = []
-    for idx, item in enumerate(data, 1):
+    for idx, row in enumerate(rows, 1):
         try:
-            # Mapping sesuai interface Account
-            raw_name = item.get("name", "Unknown")
+            raw_name = row["name"]
             safe_name = format_name(raw_name)
             env_name = f"ACC{idx}_{safe_name}"
 
-            # Ambil account_id (number) dan ubah ke string
-            acc_id = str(item.get("account_id", ""))
-            # Ambil cookie_token (string)
-            cookie_token = item.get("cookie_token", "")
+            account_id = row["accountId"]
+            cookie_token = row["cookieToken"]
 
-            if not acc_id or not cookie_token:
+            if not account_id or not cookie_token:
                 log.warning(f"[COOKIE] Data tidak lengkap untuk akun {env_name}, skip.")
                 continue
 
-            cookie_str = f"account_id_v2={acc_id}; cookie_token_v2={cookie_token}"
+            cookie_str = f"account_id_v2={account_id}; cookie_token_v2={cookie_token}"
             cookies.append(CookieInfo(env_name=env_name, cookies=cookie_str))
         except Exception as e:
-            log.warning(f"[COOKIE] Gagal memproses item {idx}: {e}")
+            log.warning(f"[COOKIE] Gagal memproses row {idx}: {e}")
             continue
 
     return sorted(cookies, key=lambda x: x.env_name)
@@ -197,14 +165,15 @@ async def create_genshin_client(
 ) -> tuple[genshin.Client | None, str | None]:
     """Factory function untuk membuat client Genshin yang aman."""
     try:
-        cookies = await genshin.complete_cookies(cookies=cookie.get())
+        cookies = await genshin.complete_cookies(cookies=cookie.cookies, refresh=False)
         client = genshin.Client(cookies=cookies, lang=lang, game=game)  # type: ignore
         return client, None
     except Exception as e:
+        log.error(f"[CLIENT] Gagal membuat client: {e}")
         return None, str(e)
 
 
-def send_discord_embed(
+async def send_discord_embed(
     webhook_url: str, title: str, msg: str, color: str = "00ff00"
 ) -> None:
     """Mengirim notifikasi ke Discord (Unified)."""
@@ -216,6 +185,6 @@ def send_discord_embed(
         embed.set_timestamp()
         embed.set_footer(text="Hoyo Tools")
         webhook.add_embed(embed)
-        webhook.execute()
+        await asyncio.to_thread(webhook.execute)
     except Exception as e:
         log.error(f"[DISCORD] Gagal mengirim webhook: {e}")
