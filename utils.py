@@ -113,6 +113,22 @@ def get_days_of_month() -> int:
     return monthrange(now.year, now.month)[1]
 
 
+def is_invalid_cookie(exc: Exception) -> bool:
+    """
+    Deteksi apakah exception adalah error cookie yang tidak valid/expired.
+    Retcode yang relevan: -100, 10001, 10103, -1071, -3203, dan lainnya.
+    """
+    if isinstance(exc, genshin.errors.InvalidCookies):
+        return True
+    if isinstance(exc, genshin.errors.CookieException):
+        return True
+    if isinstance(exc, genshin.errors.GenshinException):
+        invalid_retcodes = {-100, 10001, 10103, -1071, -3203, -707}
+        if exc.retcode in invalid_retcodes:
+            return True
+    return False
+
+
 # --- Core Logic ---
 
 

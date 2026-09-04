@@ -61,6 +61,28 @@ Expects a PostgreSQL `Account` table:
 | `accountId` | TEXT | Game account ID (unique) |
 | `cookieToken` | TEXT | Authentication cookie token |
 
+## Troubleshooting
+
+### Invalid/Expired Cookie Errors
+
+The app stores `cookie_token_v2` (v2 format), which is HoYoLAB's long-lived authentication token (lasts several months). It expires when you:
+- Sign out from HoYoLAB on any device
+- Change your HoYoverse account password
+- Don't visit HoYoLAB for 90+ days
+
+**When the app reports "❌ Cookie" errors:**
+
+1. The stored `cookie_token_v2` is no longer valid
+2. You must **re-capture** the token from the HoYoLAB mobile app using a network monitoring tool (e.g., HTTP Toolkit, Fiddler)
+3. Update the `cookieToken` column in the `Account` table for affected accounts
+4. The app cannot auto-refresh v2 tokens without the root credential (`stoken_v2` + `mid`), which is not currently stored
+
+**To capture fresh tokens:**
+- Use a proxy/network monitor on your device
+- Log into the HoYoLAB mobile app
+- Find the `cookie_token_v2` value in request cookies
+- Update the database with the new token
+
 ## License
 
 MIT

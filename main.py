@@ -16,6 +16,7 @@ from utils import (
     fix_asyncio_windows_error,
     get_cookies_from_db,
     get_days_of_month,
+    is_invalid_cookie,
     log,
     send_discord_embed,
     settings,
@@ -49,6 +50,9 @@ class DailyClaimer:
                 if e.retcode == -10002:
                     info.status = "no_account"
                     return info
+                if is_invalid_cookie(e):
+                    info.status = "cookie_err"
+                    return info
                 log.warning(f"[{display_name}] Gagal klaim: {e}")
                 info.status = "❌"
                 return info
@@ -77,8 +81,11 @@ class DailyClaimer:
                 info.success = True
 
         except Exception as e:
-            log.warning(f"[{display_name}] Error Runtime: {e}")
-            info.status = "ERR"
+            if is_invalid_cookie(e):
+                info.status = "cookie_err"
+            else:
+                log.warning(f"[{display_name}] Error Runtime: {e}")
+                info.status = "ERR"
 
         return info
 

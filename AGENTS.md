@@ -39,3 +39,11 @@ The app queries all rows and builds cookie strings as `account_id_v2={accountId}
 - Concurrency is controlled via `MAX_PARALLEL` (default 5). Uses `asyncio.Semaphore` to limit simultaneous API calls across all games.
 - `fix_asyncio_windows_error()` is a Windows-only workaround — safe to ignore on Linux.
 - Game toggles are **opt-out** (`NO_GENSHIN=False` means Genshin is enabled). All games except ToT are enabled by default per `.env.example`.
+
+## Cookie Handling & Expiry
+
+- The app uses **v2 cookies** (`account_id_v2` + `cookie_token_v2`), which are long-lived (months). They expire only on sign-out, password change, or ~90 days of inactivity.
+- `genshin.complete_cookies(refresh=False)` is called — the `refresh=False` is critical. The refresh API returns `-707` for v2 cookies because the library's refresh path is v1-only and requires `stoken_v2`+`mid` (not stored).
+- Invalid/expired cookies are detected via `is_invalid_cookie()` helper (checks for `InvalidCookies`, `CookieException`, and retcodes `-100`, `10001`, `10103`, `-1071`, `-3203`, `-707`).
+- When detected, status is set to `"cookie_err"` → displayed as `❌ Cookie` in terminal → aggregated in final Discord "⚠️ Account Alert".
+- **No auto-refresh** — expired cookies must be manually re-captured from HoYoLAB app and updated in the database.
