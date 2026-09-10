@@ -9,7 +9,7 @@ Auto-claims daily check-in rewards for HoYoverse games (Genshin, Star Rail, ZZZ,
 - **Package manager**: `uv` (not pip). Lockfile `uv.lock` is committed.
 - **Python**: 3.13 (see `.python-version`)
 - **Database**: PostgreSQL (required) — reads account cookies from `Account` table
-- Install: `uv sync`
+- Install: `uv sync` (or `uv sync --extra dev` for development tools)
 - Run: `uv run python main.py`
 - Configure: copy `.env.example` to `.env` and fill in `DATABASE_URL` (required) and optionally `DISCORD_WEBHOOK_URL`
 
@@ -29,7 +29,10 @@ The app queries all rows and builds cookie strings as `account_id_v2={accountId}
 
 - Comments, log messages, and variable names use **Bahasa Indonesia** — this is intentional, do not translate.
 - Line endings are CRLF (`.editorconfig`).
-- No linter, type checker, or formatter is configured. No tests exist.
+- **Linter**: Ruff (configured in `pyproject.toml`) — run `uv run ruff check .` or `uv run ruff format .`
+- **Type checker**: Mypy (strict mode) — run `uv run mypy main.py utils.py`
+- **Tests**: Pytest with asyncio support — run `uv run pytest` or `uv run pytest --cov` for coverage (30 tests, 49% coverage)
+- **CI**: GitHub Actions runs all checks on push/PR to main (see `.github/workflows/ci.yml`)
 - Config is loaded via `pydantic-settings` from `.env` at module import time (see `utils.py:51`).
 
 ## Gotchas

@@ -26,7 +26,7 @@ from utils import (
 class DailyClaimer:
     def __init__(self, game: genshin.Game):
         self.game = game
-        self._monthly_rewards = []
+        self._monthly_rewards: list[genshin.models.DailyReward] = []
 
     async def claim(self, cookie: CookieInfo, lang: str) -> DailyInfo:
         parts = cookie.env_name.split("_", 1)
@@ -35,7 +35,7 @@ class DailyClaimer:
         info = DailyInfo(env_name=display_name)
 
         client, err = await create_genshin_client(cookie, lang, self.game)
-        if err:
+        if err or client is None:
             info.status = "cookie_err"
             return info
 
@@ -61,7 +61,7 @@ class DailyClaimer:
             _, day = await client.get_reward_info()
 
             if not self._monthly_rewards:
-                self._monthly_rewards = await client.get_monthly_rewards()
+                self._monthly_rewards = list(await client.get_monthly_rewards())
 
             reward = self._monthly_rewards[day - 1]
             info.reward = f"{reward.name} x{reward.amount}"
@@ -90,7 +90,9 @@ class DailyClaimer:
         return info
 
 
-async def send_chunked_webhook(webhook_url: str, title: str, lines: list[str], color: str) -> None:
+async def send_chunked_webhook(
+    webhook_url: str, title: str, lines: list[str], color: str
+) -> None:
     """Memecah pesan Discord agar tidak kena limit karakter."""
     MAX_LENGTH = 1900
     current_msg = "```\n"
@@ -108,7 +110,7 @@ async def send_chunked_webhook(webhook_url: str, title: str, lines: list[str], c
         await send_discord_embed(webhook_url, title, current_msg, color)
 
 
-async def main():
+async def main() -> None:
     fix_asyncio_windows_error()
     cookies = await get_cookies_from_db()
     if not cookies:
@@ -125,7 +127,9 @@ async def main():
 
     sem = asyncio.Semaphore(settings.MAX_PARALLEL)
 
-    async def limited_claim(claimer: DailyClaimer, cookie: CookieInfo, lang: str) -> DailyInfo:
+    async def limited_claim(
+        claimer: DailyClaimer, cookie: CookieInfo, lang: str
+    ) -> DailyInfo:
         async with sem:
             return await claimer.claim(cookie, lang)
 
@@ -135,7 +139,9 @@ async def main():
             if disabled:
                 continue
             claimer = DailyClaimer(game)
-            results[name] = [tg.create_task(limited_claim(claimer, c, lang)) for c in cookies]
+            results[name] = [
+                tg.create_task(limited_claim(claimer, c, lang)) for c in cookies
+            ]
 
     rich_output = []
     timestamp = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
@@ -171,7 +177,7 @@ async def main():
 
         has_valid_info = False
 
-        for i, cookie in zip(infos, cookies):
+        for i, cookie in zip(infos, cookies, strict=True):
             # Tambahkan ke Terminal (Semua)
             display_status = STATUS_DISPLAY.get(i.status, i.status)
             table.add_row(i.env_name, i.uid, i.check_in_count, display_status, i.reward)
@@ -189,7 +195,9 @@ async def main():
                 global_cookie_errors.add(i.env_name)
                 if cookie.user_webhook:
                     user_results.setdefault(cookie.user_webhook, []).append((name, i))
-                    user_cookie_errors.setdefault(cookie.user_webhook, set()).add(i.env_name)
+                    user_cookie_errors.setdefault(cookie.user_webhook, set()).add(
+                        i.env_name
+                    )
                 continue
 
             # 3. Pisahkan Sukses dan Error Lainnya
@@ -266,10 +274,10 @@ async def main():
             )
 
         # Cookie Error Khusus User Ini
-        err_names = user_cookie_errors.get(wh)
-        if err_names:
-            err_list = ", ".join(sorted(err_names))
-            error_msg = [f"❌ Invalid Cookies ({len(err_names)}): {err_list}"]
+        err_names_set = user_cookie_errors.get(wh)
+        if err_names_set:
+            err_list = ", ".join(sorted(err_names_set))
+            error_msg = [f"❌ Invalid Cookies ({len(err_names_set)}): {err_list}"]
             await send_chunked_webhook(wh, "⚠️ Account Alert", error_msg, "ff0000")
 
     if rich_output:

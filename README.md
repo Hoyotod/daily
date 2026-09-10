@@ -37,6 +37,34 @@ Auto-claims daily check-in rewards for HoYoverse games and sends results to Disc
    uv run python main.py
    ```
 
+## Development
+
+This project includes comprehensive development tooling:
+
+### Install Dev Dependencies
+
+```bash
+uv sync --extra dev
+```
+
+### Code Quality Tools
+
+| Tool | Purpose | Command |
+|------|---------|---------|
+| **Ruff** | Linter & Formatter | `uv run ruff check .`<br>`uv run ruff format .` |
+| **Mypy** | Type Checker (strict mode) | `uv run mypy main.py utils.py` |
+| **Pytest** | Test Suite (30 tests, 49% coverage) | `uv run pytest`<br>`uv run pytest --cov` |
+
+### CI/CD
+
+GitHub Actions automatically runs all checks on push/PR to `main`:
+- Lint with ruff
+- Format check
+- Type check with mypy
+- Test suite with coverage
+
+See `.github/workflows/ci.yml` for details.
+
 ## Environment Variables
 
 | Variable | Required | Default | Description |

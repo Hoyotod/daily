@@ -55,7 +55,7 @@ settings = Settings()
 @dataclass
 class CookieInfo:
     env_name: str = ""
-    cookies: str | dict = ""
+    cookies: str | dict[str, str] = ""
     user_webhook: str | None = None
 
 
