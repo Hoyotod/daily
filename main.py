@@ -18,6 +18,7 @@ from utils import (
     get_days_of_month,
     is_invalid_cookie,
     log,
+    send_chunked_telegram,
     send_discord_embed,
     settings,
 )
@@ -63,6 +64,16 @@ class DailyClaimer:
             if not self._monthly_rewards:
                 self._monthly_rewards = list(await client.get_monthly_rewards())
 
+            if (
+                not self._monthly_rewards
+                or not isinstance(day, int)
+                or day < 1
+                or day > len(self._monthly_rewards)
+            ):
+                log.warning(f"[{display_name}] Data reward harian tidak valid.")
+                info.status = "ERR"
+                return info
+
             reward = self._monthly_rewards[day - 1]
             info.reward = f"{reward.name} x{reward.amount}"
 
@@ -95,9 +106,20 @@ async def send_chunked_webhook(
 ) -> None:
     """Memecah pesan Discord agar tidak kena limit karakter."""
     MAX_LENGTH = 1900
+
+    # Pecah baris yang terlalu panjang agar tidak melebihi limit Discord
+    safe_lines: list[str] = []
+    for line in lines:
+        if len(line) <= MAX_LENGTH - 10:
+            safe_lines.append(line)
+        else:
+            chunk_size = MAX_LENGTH - 10
+            for i in range(0, len(line), chunk_size):
+                safe_lines.append(line[i : i + chunk_size])
+
     current_msg = "```\n"
 
-    for line in lines:
+    for line in safe_lines:
         if len(current_msg) + len(line) > MAX_LENGTH:
             current_msg += "```"
             await send_discord_embed(webhook_url, title, current_msg, color)
@@ -153,6 +175,10 @@ async def main() -> None:
     user_results: dict[str, list[tuple[str, DailyInfo]]] = {}
     user_cookie_errors: dict[str, set[str]] = {}
 
+    # Per-User Telegram: chat_id -> list[(game_name, DailyInfo)], chat_id -> set cookie error
+    user_telegram_results: dict[str, list[tuple[str, DailyInfo]]] = {}
+    user_telegram_cookie_errors: dict[str, set[str]] = {}
+
     # Status display mapping untuk tabel
     STATUS_DISPLAY = {
         "cookie_err": "❌ Cookie",
@@ -198,6 +224,13 @@ async def main() -> None:
                     user_cookie_errors.setdefault(cookie.user_webhook, set()).add(
                         i.env_name
                     )
+                if cookie.telegram_chat_id:
+                    user_telegram_results.setdefault(
+                        cookie.telegram_chat_id, []
+                    ).append((name, i))
+                    user_telegram_cookie_errors.setdefault(
+                        cookie.telegram_chat_id, set()
+                    ).add(i.env_name)
                 continue
 
             # 3. Pisahkan Sukses dan Error Lainnya
@@ -207,11 +240,19 @@ async def main() -> None:
                 )
                 if cookie.user_webhook:
                     user_results.setdefault(cookie.user_webhook, []).append((name, i))
+                if cookie.telegram_chat_id:
+                    user_telegram_results.setdefault(
+                        cookie.telegram_chat_id, []
+                    ).append((name, i))
             else:
                 # Error runtime lain (misal timeout, captcha, dll)
                 error_lines.append(f"❌ {i.env_name}: {i.status}")
                 if cookie.user_webhook:
                     user_results.setdefault(cookie.user_webhook, []).append((name, i))
+                if cookie.telegram_chat_id:
+                    user_telegram_results.setdefault(
+                        cookie.telegram_chat_id, []
+                    ).append((name, i))
 
         if has_valid_info:
             rich_output.append(table)
@@ -235,6 +276,21 @@ async def main() -> None:
                     "ff0000",
                 )
 
+        # Telegram (global)
+        if settings.TELEGRAM_BOT_TOKEN and settings.TELEGRAM_CHAT_ID:
+            if success_lines:
+                await send_chunked_telegram(
+                    settings.TELEGRAM_BOT_TOKEN,
+                    settings.TELEGRAM_CHAT_ID,
+                    [f"Daily Check-In - {name}"] + success_lines,
+                )
+            if error_lines:
+                await send_chunked_telegram(
+                    settings.TELEGRAM_BOT_TOKEN,
+                    settings.TELEGRAM_CHAT_ID,
+                    [f"⚠️ Daily Error - {name}"] + error_lines,
+                )
+
     # --- FINAL REPORT: COOKIE ERRORS ---
     # Dikirim sekali saja di akhir, mencakup semua game
     if global_cookie_errors and settings.DISCORD_WEBHOOK_URL:
@@ -242,6 +298,21 @@ async def main() -> None:
         error_msg = [f"❌ Invalid Cookies ({len(global_cookie_errors)}): {err_names}"]
         await send_chunked_webhook(
             settings.DISCORD_WEBHOOK_URL, "⚠️ Account Alert", error_msg, "ff0000"
+        )
+
+    if (
+        global_cookie_errors
+        and settings.TELEGRAM_BOT_TOKEN
+        and settings.TELEGRAM_CHAT_ID
+    ):
+        err_names = ", ".join(sorted(global_cookie_errors))
+        await send_chunked_telegram(
+            settings.TELEGRAM_BOT_TOKEN,
+            settings.TELEGRAM_CHAT_ID,
+            [
+                "⚠️ Account Alert",
+                f"❌ Invalid Cookies ({len(global_cookie_errors)}): {err_names}",
+            ],
         )
 
     # --- PER-USER REPORT ---
@@ -279,6 +350,45 @@ async def main() -> None:
             err_list = ", ".join(sorted(err_names_set))
             error_msg = [f"❌ Invalid Cookies ({len(err_names_set)}): {err_list}"]
             await send_chunked_webhook(wh, "⚠️ Account Alert", error_msg, "ff0000")
+
+    # --- PER-USER TELEGRAM REPORT ---
+    bot_token = settings.TELEGRAM_BOT_TOKEN
+    for chat_id, items in user_telegram_results.items():
+        if not bot_token:
+            break
+        tg_user_success: dict[str, list[str]] = {}
+        tg_user_error: dict[str, list[str]] = {}
+
+        for game_name, info in items:
+            if info.status in ["✅", "🟡"]:
+                tg_user_success.setdefault(game_name, []).append(
+                    f"{info.status} {info.env_name} ({info.uid}): Day {info.check_in_count}"
+                )
+            elif info.status not in ("no_account", "cookie_err"):
+                tg_user_error.setdefault(game_name, []).append(
+                    f"❌ {info.env_name}: {info.status}"
+                )
+
+        for game_name, lines in tg_user_success.items():
+            await send_chunked_telegram(
+                bot_token, chat_id, [f"Daily Check-In - {game_name}"] + lines
+            )
+        for game_name, lines in tg_user_error.items():
+            await send_chunked_telegram(
+                bot_token, chat_id, [f"⚠️ Daily Error - {game_name}"] + lines
+            )
+
+        err_names_set = user_telegram_cookie_errors.get(chat_id)
+        if err_names_set:
+            err_list = ", ".join(sorted(err_names_set))
+            await send_chunked_telegram(
+                bot_token,
+                chat_id,
+                [
+                    "⚠️ Account Alert",
+                    f"❌ Invalid Cookies ({len(err_names_set)}): {err_list}",
+                ],
+            )
 
     if rich_output:
         console.print(Panel(Group(*rich_output), title=f"Daily Report - {timestamp}"))

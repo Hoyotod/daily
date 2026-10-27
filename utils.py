@@ -1,14 +1,18 @@
 import asyncio
 import logging
+import re
 import sys
 from calendar import monthrange
 from dataclasses import dataclass
 from datetime import datetime
 from re import sub
+from urllib.parse import urlparse
 
 import asyncpg
 import genshin
+import requests
 from discord_webhook import DiscordEmbed, DiscordWebhook
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from rich.console import Console
 from rich.logging import RichHandler
@@ -40,12 +44,23 @@ class Settings(BaseSettings):
     # Webhooks
     DISCORD_WEBHOOK_URL: str = ""
 
+    # Telegram
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_CHAT_ID: str = ""
+
     # Feature Flags
     NO_GENSHIN: bool = False
     NO_STARRAIL: bool = False
     NO_ZZZ: bool = False
     NO_HONKAI: bool = False
     NO_TOT: bool = False
+
+    @field_validator("MAX_PARALLEL")
+    @classmethod
+    def _validate_max_parallel(cls, value: int) -> int:
+        if value < 1:
+            return 1
+        return value
 
 
 settings = Settings()
@@ -57,6 +72,7 @@ class CookieInfo:
     env_name: str = ""
     cookies: str | dict[str, str] = ""
     user_webhook: str | None = None
+    telegram_chat_id: str | None = None
 
 
 @dataclass
@@ -146,14 +162,14 @@ async def get_cookies_from_db() -> list[CookieInfo]:
         conn = await asyncpg.connect(settings.DATABASE_URL)
         try:
             rows = await conn.fetch(
-                """SELECT a.name, a."accountId", a."cookieToken", u.webhook
+                """SELECT a.name, a."accountId", a."cookieToken", u.webhook, u."telegramChatId"
                 FROM "Account" a
                 LEFT JOIN "User" u ON a."userId" = u.id"""
             )
         finally:
             await conn.close()
     except Exception as e:
-        log.error(f"[COOKIE] Gagal mengambil cookie dari database: {e}")
+        log.error(f"[COOKIE] Gagal mengambil cookie dari database: {type(e).__name__}")
         return []
 
     cookies = []
@@ -170,12 +186,26 @@ async def get_cookies_from_db() -> list[CookieInfo]:
                 log.warning(f"[COOKIE] Data tidak lengkap untuk akun {env_name}, skip.")
                 continue
 
+            # Validasi untuk mencegah cookie injection (karakter berbahaya)
+            account_id = str(account_id)
+            cookie_token = str(cookie_token)
+            if not re.fullmatch(r"[A-Za-z0-9_-]+", account_id) or not re.fullmatch(
+                r"[A-Za-z0-9_-]+", cookie_token
+            ):
+                log.warning(
+                    f"[COOKIE] Format cookie tidak valid untuk akun {env_name}, skip."
+                )
+                continue
+
             cookie_str = f"account_id_v2={account_id}; cookie_token_v2={cookie_token}"
             cookies.append(
                 CookieInfo(
                     env_name=env_name,
                     cookies=cookie_str,
                     user_webhook=row["webhook"],
+                    telegram_chat_id=row.get("telegramChatId")
+                    if hasattr(row, "get")
+                    else row["telegramChatId"],
                 )
             )
         except Exception as e:
@@ -194,7 +224,7 @@ async def create_genshin_client(
         client = genshin.Client(cookies=cookies, lang=lang, game=game)  # type: ignore
         return client, None
     except Exception as e:
-        log.error(f"[CLIENT] Gagal membuat client: {e}")
+        log.error(f"[CLIENT] Gagal membuat client: {type(e).__name__}")
         return None, str(e)
 
 
@@ -203,6 +233,10 @@ async def send_discord_embed(
 ) -> None:
     """Mengirim notifikasi ke Discord (Unified)."""
     if not webhook_url:
+        return
+    parsed = urlparse(webhook_url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        log.warning("[DISCORD] URL webhook tidak valid, pesan tidak dikirim.")
         return
     try:
         webhook = DiscordWebhook(url=webhook_url)
@@ -213,3 +247,46 @@ async def send_discord_embed(
         await asyncio.to_thread(webhook.execute)
     except Exception as e:
         log.error(f"[DISCORD] Gagal mengirim webhook: {e}")
+
+
+async def send_telegram_message(bot_token: str, chat_id: str, text: str) -> bool:
+    """Mengirim satu pesan ke Telegram (Unified)."""
+    if not bot_token or not chat_id or not text:
+        return False
+
+    def _sync() -> bool:
+        try:
+            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+            payload = {"chat_id": chat_id, "text": text}
+            response = requests.post(url, json=payload, timeout=10)
+            response.raise_for_status()
+            return True
+        except Exception as e:
+            log.error(f"[TELEGRAM] Gagal mengirim pesan: {type(e).__name__}")
+            return False
+
+    return await asyncio.to_thread(_sync)
+
+
+async def send_chunked_telegram(bot_token: str, chat_id: str, lines: list[str]) -> None:
+    """Memecah pesan Telegram agar tidak kena limit karakter (4096)."""
+    MAX_LENGTH = 4000
+    safe_lines: list[str] = []
+    for line in lines:
+        if len(line) <= MAX_LENGTH:
+            safe_lines.append(line)
+        else:
+            for i in range(0, len(line), MAX_LENGTH):
+                safe_lines.append(line[i : i + MAX_LENGTH])
+
+    current_msg = ""
+    for line in safe_lines:
+        if len(current_msg) + len(line) + 1 > MAX_LENGTH:
+            if current_msg:
+                await send_telegram_message(bot_token, chat_id, current_msg)
+            current_msg = line + "\n"
+        else:
+            current_msg += line + "\n"
+
+    if current_msg:
+        await send_telegram_message(bot_token, chat_id, current_msg)

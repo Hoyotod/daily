@@ -8,6 +8,7 @@ Auto-claims daily check-in rewards for HoYoverse games and sends results to Disc
 - Batch claims across multiple accounts concurrently
 - Configurable concurrency limit (`MAX_PARALLEL`) to avoid API rate limits
 - Discord webhook notifications with chunked messages
+- Telegram bot notifications (global and per-user chat IDs) with chunked messages
 - Rich terminal output with per-game tables
 
 ## Prerequisites
@@ -15,6 +16,7 @@ Auto-claims daily check-in rewards for HoYoverse games and sends results to Disc
 - Python 3.13
 - PostgreSQL database with an `Account` table
 - [uv](https://docs.astral.sh/uv/) package manager
+- Optional: Telegram bot token + chat ID for notifications
 
 ## Setup
 
@@ -55,6 +57,14 @@ uv sync --extra dev
 | **Mypy** | Type Checker (strict mode) | `uv run mypy main.py utils.py` |
 | **Pytest** | Test Suite (30 tests, 49% coverage) | `uv run pytest`<br>`uv run pytest --cov` |
 
+### Pre-commit
+
+Install hooks locally:
+```bash
+uv run pre-commit install
+uv run pre-commit run --all-files
+```
+
 ### CI/CD
 
 GitHub Actions automatically runs all checks on push/PR to `main`:
@@ -71,6 +81,8 @@ See `.github/workflows/ci.yml` for details.
 |---|---|---|---|
 | `DATABASE_URL` | Yes | — | PostgreSQL connection string |
 | `DISCORD_WEBHOOK_URL` | No | — | Discord webhook URL for notifications |
+| `TELEGRAM_BOT_TOKEN` | No | — | Telegram bot token for notifications |
+| `TELEGRAM_CHAT_ID` | No | — | Default Telegram chat ID for notifications |
 | `LOCALE` | No | `en-us` | API response language |
 | `MAX_PARALLEL` | No | `5` | Max concurrent API requests |
 | `NO_GENSHIN` | No | `False` | Disable Genshin Impact |
@@ -81,13 +93,22 @@ See `.github/workflows/ci.yml` for details.
 
 ## Database Schema
 
-Expects a PostgreSQL `Account` table:
+Expects PostgreSQL tables:
 
+`Account`:
 | Column | Type | Description |
 |---|---|---|
 | `name` | TEXT | Account display name |
 | `accountId` | TEXT | Game account ID (unique) |
 | `cookieToken` | TEXT | Authentication cookie token |
+| `userId` | TEXT | Foreign key to `User.id` (optional) |
+
+`User` (optional, for per-user notifications):
+| Column | Type | Description |
+|---|---|---|
+| `id` | TEXT | Primary key |
+| `webhook` | TEXT | Per-user Discord webhook URL |
+| `telegramChatId` | TEXT | Per-user Telegram chat ID |
 
 ## Troubleshooting
 
