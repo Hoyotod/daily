@@ -31,14 +31,16 @@ jobs:
 
             - name: Run daily claim script
               env:
-                  HOYO_API_URL: ${{ vars.HOYO_API_URL }}
+                  HOYO_API_URL: "${{ vars.HOYO_API_URL || 'https://hoyo-api.haiueom.workers.dev' }}"
                   HOYO_API_KEY: ${{ secrets.HOYO_API_KEY }}
                   DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-                  MAX_PARALLEL: ${{ vars.MAX_PARALLEL }}
-                  LOCALE: ${{ vars.LOCALE }}
-                  NO_GENSHIN: ${{ vars.NO_GENSHIN }}
-                  NO_STARRAIL: ${{ vars.NO_STARRAIL }}
-                  NO_ZZZ: ${{ vars.NO_ZZZ }}
-                  NO_HONKAI: ${{ vars.NO_HONKAI }}
-                  NO_TOT: ${{ vars.NO_TOT }}
+                  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+                  TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+                  MAX_PARALLEL: ${{ vars.MAX_PARALLEL || '5' }}
+                  LOCALE: ${{ vars.LOCALE || 'en-us' }}
+                  NO_GENSHIN: ${{ vars.NO_GENSHIN || 'False' }}
+                  NO_STARRAIL: ${{ vars.NO_STARRAIL || 'False' }}
+                  NO_ZZZ: ${{ vars.NO_ZZZ || 'False' }}
+                  NO_HONKAI: ${{ vars.NO_HONKAI || 'False' }}
+                  NO_TOT: ${{ vars.NO_TOT || 'True' }}
               run: uv run main.py
