@@ -64,7 +64,8 @@ def mock_reward() -> MagicMock:
 
 @pytest.fixture
 def mock_settings(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost:5432/test")
+    monkeypatch.setenv("HOYO_API_URL", "https://hoyo-api.test")
+    monkeypatch.setenv("HOYO_API_KEY", "test-key")
     monkeypatch.setenv("DISCORD_WEBHOOK_URL", "")
     monkeypatch.setenv("LOCALE", "en-us")
     monkeypatch.setenv("MAX_PARALLEL", "5")

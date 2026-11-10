@@ -5,9 +5,9 @@ description = "Auto-claims daily check-in rewards for HoYoverse games"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "asyncpg>=0.32.0",
     "discord-webhook>=1.4.1",
     "genshin>=1.7.32",
+    "httpx>=0.28.1",
     "pydantic>=2.14.3",
     "pydantic-settings>=2.16.2",
     "rich>=15.0.0",
@@ -52,7 +52,6 @@ disallow_any_unimported = false
 [[tool.mypy.overrides]]
 module = [
     "genshin.*",
-    "asyncpg.*",
     "discord_webhook.*",
 ]
 ignore_missing_imports = true

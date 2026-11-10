@@ -8,8 +8,8 @@ from datetime import datetime
 from re import sub
 from urllib.parse import urlparse
 
-import asyncpg
 import genshin
+import httpx
 import requests
 from discord_webhook import DiscordEmbed, DiscordWebhook
 from pydantic import field_validator
@@ -38,8 +38,9 @@ class Settings(BaseSettings):
     LOCALE: str = "en-us"
     MAX_PARALLEL: int = 5
 
-    # Database
-    DATABASE_URL: str | None = None
+    # HoYo API
+    HOYO_API_URL: str = ""
+    HOYO_API_KEY: str = ""
 
     # Webhooks
     DISCORD_WEBHOOK_URL: str = ""
@@ -60,6 +61,14 @@ class Settings(BaseSettings):
     def _validate_max_parallel(cls, value: int) -> int:
         if value < 1:
             return 1
+        return value
+
+    @field_validator("HOYO_API_URL")
+    @classmethod
+    def _validate_hoyo_api_url(cls, value: str) -> str:
+        value = value.strip().rstrip("/")
+        if value and not value.startswith(("http://", "https://")):
+            raise ValueError("HOYO_API_URL must start with http:// or https://")
         return value
 
 
@@ -149,38 +158,49 @@ def is_invalid_cookie(exc: Exception) -> bool:
 # --- Core Logic ---
 
 
-async def get_cookies_from_db() -> list[CookieInfo]:
+async def get_cookies_from_api() -> list[CookieInfo]:
     """
-    Mengambil cookie dari PostgreSQL database.
-    Schema: Account { name: string, accountId: string, cookieToken: string, ... }
+    Mengambil cookie dari hoyo-api (GET /api/internal/accounts).
+    Respons: [{ name, accountId, cookieToken, webhook, telegramChatId, ... }]
     """
-    if not settings.DATABASE_URL:
-        log.error("[COOKIE] DATABASE_URL belum diset di .env")
+    if not settings.HOYO_API_URL or not settings.HOYO_API_KEY:
+        log.error("[COOKIE] HOYO_API_URL/HOYO_API_KEY belum diset di .env")
         return []
 
+    url = f"{settings.HOYO_API_URL.rstrip('/')}/api/internal/accounts"
     try:
-        conn = await asyncpg.connect(settings.DATABASE_URL)
-        try:
-            rows = await conn.fetch(
-                """SELECT a.name, a."accountId", a."cookieToken", u.webhook, u."telegramChatId"
-                FROM "Account" a
-                LEFT JOIN "User" u ON a."userId" = u.id"""
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                url, headers={"X-API-Key": settings.HOYO_API_KEY}
             )
-        finally:
-            await conn.close()
-    except Exception as e:
-        log.error(f"[COOKIE] Gagal mengambil cookie dari database: {type(e).__name__}")
+            response.raise_for_status()
+            payload = response.json()
+    except httpx.HTTPStatusError as e:
+        log.error(
+            f"[COOKIE] hoyo-api menolak permintaan (HTTP {e.response.status_code})."
+        )
+        return []
+    except httpx.HTTPError as e:
+        log.error(f"[COOKIE] Gagal menghubungi hoyo-api: {type(e).__name__}")
+        return []
+    except ValueError:
+        log.error("[COOKIE] Respons hoyo-api bukan JSON yang valid.")
+        return []
+
+    rows = payload.get("accounts") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        log.error("[COOKIE] Format respons hoyo-api tidak valid.")
         return []
 
     cookies = []
     for idx, row in enumerate(rows, 1):
         try:
-            raw_name = row["name"]
-            safe_name = format_name(raw_name)
-            env_name = f"ACC{idx}_{safe_name}"
+            name = row.get("name")
+            safe_name = format_name(str(name)) if name else ""
+            env_name = f"ACC{idx}_{safe_name}" if safe_name else f"ACC{idx}"
 
-            account_id = row["accountId"]
-            cookie_token = row["cookieToken"]
+            account_id = row.get("accountId")
+            cookie_token = row.get("cookieToken")
 
             if not account_id or not cookie_token:
                 log.warning(f"[COOKIE] Data tidak lengkap untuk akun {env_name}, skip.")
@@ -197,21 +217,25 @@ async def get_cookies_from_db() -> list[CookieInfo]:
                 )
                 continue
 
+            webhook = row.get("webhook")
+            telegram_chat_id = row.get("telegramChatId")
+
             cookie_str = f"account_id_v2={account_id}; cookie_token_v2={cookie_token}"
             cookies.append(
                 CookieInfo(
                     env_name=env_name,
                     cookies=cookie_str,
-                    user_webhook=row["webhook"],
-                    telegram_chat_id=row.get("telegramChatId")
-                    if hasattr(row, "get")
-                    else row["telegramChatId"],
+                    user_webhook=webhook if isinstance(webhook, str) else None,
+                    telegram_chat_id=(
+                        telegram_chat_id if isinstance(telegram_chat_id, str) else None
+                    ),
                 )
             )
         except Exception as e:
             log.warning(f"[COOKIE] Gagal memproses row {idx}: {e}")
             continue
 
+    log.info(f"[COOKIE] Berhasil memuat {len(cookies)} akun dari hoyo-api.")
     return sorted(cookies, key=lambda x: x.env_name)
 
 

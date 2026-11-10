@@ -14,7 +14,7 @@ from utils import (
     console,
     create_genshin_client,
     fix_asyncio_windows_error,
-    get_cookies_from_db,
+    get_cookies_from_api,
     get_days_of_month,
     is_invalid_cookie,
     log,
@@ -134,7 +134,7 @@ async def send_chunked_webhook(
 
 async def main() -> None:
     fix_asyncio_windows_error()
-    cookies = await get_cookies_from_db()
+    cookies = await get_cookies_from_api()
     if not cookies:
         return log.warning("Tidak ada cookie yang ditemukan.")
 
