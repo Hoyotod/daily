@@ -124,4 +124,4 @@ The app stores `cookie_token_v2` (v2 format), which is HoYoLAB's long-lived auth
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

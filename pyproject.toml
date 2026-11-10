@@ -3,6 +3,7 @@ name = "daily"
 version = "0.1.0"
 description = "Auto-claims daily check-in rewards for HoYoverse games"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
     "discord-webhook>=1.4.1",
