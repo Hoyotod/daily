@@ -40,7 +40,7 @@ Cookie strings are built as `account_id_v2={accountId}; cookie_token_v2={cookieT
 - Line endings are CRLF (`.editorconfig`).
 - **Linter**: Ruff (configured in `pyproject.toml`) — run `uv run ruff check .` or `uv run ruff format .`
 - **Type checker**: Mypy (strict mode) — run `uv run mypy main.py utils.py`
-- **Tests**: Pytest with asyncio support - run `uv run pytest` or `uv run pytest --cov` for coverage (41 tests, ~80% coverage)
+- **Tests**: Pytest with asyncio support - run `uv run pytest` or `uv run pytest --cov` for coverage (56 tests, ~52% coverage)
 - **CI**: GitHub Actions runs all checks on push/PR to main (see `.github/workflows/ci.yml`)
 - **Pre-commit**: configured in `.pre-commit-config.yaml` (ruff, mypy, pytest) — run `uv run pre-commit install` then `uv run pre-commit run --all-files`
 - Config is loaded via `pydantic-settings` from `.env` at module import time (see `utils.py:51`).
@@ -50,7 +50,7 @@ Cookie strings are built as `account_id_v2={accountId}; cookie_token_v2={cookieT
 - The app fetches accounts from hoyo-api at runtime — it won't work without a valid `HOYO_API_URL`, `HOYO_API_KEY`, and hoyo-api's `SERVICE_API_KEY` secret.
 - Discord webhook sends use `discord-webhook` library, wrapped in `asyncio.to_thread` to avoid blocking the event loop.
 - Telegram sends use the Bot API via `requests` in `asyncio.to_thread`; configured via `TELEGRAM_BOT_TOKEN` (global) and per-user `telegramChatId` (hoyo-api user record) or `TELEGRAM_CHAT_ID` (global fallback).
-- Cookie values from hoyo-api are validated against `^[A-Za-z0-9_-]+$` to prevent cookie injection; invalid rows are skipped.
+- Cookie values from hoyo-api are validated against RFC 6265 cookie-value rules (printable ASCII except `;`, `,`, whitespace, `"` and `\`) to prevent cookie injection; invalid rows are skipped.
 - Concurrency is controlled via `MAX_PARALLEL` (default 5). Uses `asyncio.Semaphore` to limit simultaneous API calls across all games.
 - `fix_asyncio_windows_error()` is a Windows-only workaround — safe to ignore on Linux.
 - Game toggles are **opt-out** (`NO_GENSHIN=False` means Genshin is enabled). All games except ToT are enabled by default per `.env.example`.

@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import re
 import sys
 from calendar import monthrange
 from dataclasses import dataclass
@@ -129,6 +128,22 @@ def format_name(name: str) -> str:
     return name.upper()
 
 
+# Karakter yang tidak boleh muncul di nilai cookie (RFC 6265 cookie-octet).
+_COOKIE_FORBIDDEN = frozenset('",;\\')
+
+
+def is_safe_cookie_value(value: str) -> bool:
+    """Validasi nilai cookie sesuai RFC 6265.
+
+    Cookie HoYoverse boleh mengandung base64/URL-encoded characters
+    (+, /, =, %, dll) — yang dilarang hanya `;`, `,`, spasi/kontrol,
+    tanda kutip, dan backslash (berpotensi cookie injection).
+    """
+    return bool(value) and all(
+        0x21 <= ord(char) <= 0x7E and char not in _COOKIE_FORBIDDEN for char in value
+    )
+
+
 def fix_asyncio_windows_error() -> None:
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -209,8 +224,8 @@ async def get_cookies_from_api() -> list[CookieInfo]:
             # Validasi untuk mencegah cookie injection (karakter berbahaya)
             account_id = str(account_id)
             cookie_token = str(cookie_token)
-            if not re.fullmatch(r"[A-Za-z0-9_-]+", account_id) or not re.fullmatch(
-                r"[A-Za-z0-9_-]+", cookie_token
+            if not is_safe_cookie_value(account_id) or not is_safe_cookie_value(
+                cookie_token
             ):
                 log.warning(
                     f"[COOKIE] Format cookie tidak valid untuk akun {env_name}, skip."

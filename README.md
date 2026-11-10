@@ -56,7 +56,7 @@ uv sync --extra dev
 |------|---------|---------|
 | **Ruff** | Linter & Formatter | `uv run ruff check .`<br>`uv run ruff format .` |
 | **Mypy** | Type Checker (strict mode) | `uv run mypy main.py utils.py` |
-| **Pytest** | Test Suite (41 tests) | `uv run pytest`<br>`uv run pytest --cov` |
+| **Pytest** | Test Suite (56 tests) | `uv run pytest`<br>`uv run pytest --cov` |
 
 ### Pre-commit
 
