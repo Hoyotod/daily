@@ -7,18 +7,18 @@ requires-python = ">=3.13"
 dependencies = [
     "asyncpg>=0.32.0",
     "discord-webhook>=1.4.1",
-    "genshin>=1.7.31",
-    "pydantic>=2.14.2",
+    "genshin>=1.7.32",
+    "pydantic>=2.14.3",
     "pydantic-settings>=2.16.2",
     "rich>=15.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.17.3",
+    "ruff>=0.17.4",
     "mypy>=2.4.1",
     "pytest>=9.2.0",
-    "pytest-asyncio>=1.4.1",
+    "pytest-asyncio>=1.4.1.post1",
     "pytest-cov>=7.1.0",
     "pre-commit>=4.7.0",
 ]
