@@ -10,16 +10,16 @@ dependencies = [
     "genshin>=1.7.32",
     "httpx>=0.28.1",
     "pydantic>=2.14.3",
-    "pydantic-settings>=2.16.2",
+    "pydantic-settings>=2.16.3",
     "rich>=15.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.17.4",
+    "ruff>=0.17.5",
     "mypy>=2.4.1",
     "pytest>=9.2.0",
-    "pytest-asyncio>=1.4.1.post1",
+    "pytest-asyncio>=1.5.0",
     "pytest-cov>=7.1.0",
     "pre-commit>=4.7.0",
 ]
